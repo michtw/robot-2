@@ -78,4 +78,11 @@
 #define REGISTER        0x9001
 #define ACK             0x9003
 
+#ifdef DEBUG
+#define DBG(fmt, args...) \
+               printf(fmt, ##args)
+#else
+#define DBG(fmt, args...) 
+#endif
+
 #endif

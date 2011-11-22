@@ -25,24 +25,24 @@ fd_set socks;
 int sock;
 int sock_now = -1;
 
-void setnonblocking(int sock)
+static void setnonblocking(int sock)
 {
         int opts;
 
-        opts = fcntl(sock,F_GETFL);
+        opts = fcntl(sock, F_GETFL);
         if (opts < 0) {
                 perror("fcntl(F_GETFL)");
                 exit(EXIT_FAILURE);
         }   
         opts = (opts | O_NONBLOCK);
-        if (fcntl(sock,F_SETFL,opts) < 0) {
+        if (fcntl(sock, F_SETFL, opts) < 0) {
                 perror("fcntl(F_SETFL)");
                 exit(EXIT_FAILURE);
         }   
         return;
 }
 
-void handle_new_connection(void) 
+static void handle_new_connection(void) 
 {
         int listnum;         /* Current item in connectlist for for loops */
         int connection; /* Socket file descriptor for incoming connections */
@@ -52,8 +52,7 @@ void handle_new_connection(void)
 	address.sun_family = AF_UNIX;       /* Unix domain socket */
 	strcpy(address.sun_path, DSOCKET_PATH);
 
-	/* The total length of the address includes the sun_family
-	   element */
+	/* The total length of the address includes the sun_family element */
 	addr_length = sizeof(address.sun_family) + strlen(address.sun_path);
 
         /* We have a new connection coming in!  We'll
@@ -65,8 +64,8 @@ void handle_new_connection(void)
                 exit(EXIT_FAILURE);
         }
 
-//        setnonblocking(connection);
-//
+        setnonblocking(connection);
+
         for (listnum = 0; (listnum < 5) && (connection != -1); listnum ++) {
                 if (connectlist[listnum] == 0) {
                         printf("\nConnection accepted:   FD=%d; Slot=%d\n",
@@ -91,14 +90,13 @@ void handle_new_connection(void)
 
    Note that if a single line exceeds the length of count, the extra data
    will be read and discarded!  You have been warned. */
-int sock_gets(int sockfd, unsigned char *str, size_t count)
+static int sock_gets(int sockfd, unsigned char *str, size_t count)
 {
 	int bytes_read = 1;
 	int total_count = 0;
 	int idx = 0;
 	unsigned char last_read = 0;
 
-	printf("debug ( ");
 	while (bytes_read > 0) {
 		bytes_read = read(sockfd, &last_read, 1);
 
@@ -108,7 +106,7 @@ int sock_gets(int sockfd, unsigned char *str, size_t count)
 		} else {
 			str[idx] = last_read;
 			idx++;
-			fprintf(stdout, "0x%02x ", last_read);
+			DBG("0x%02x ", last_read);
 			total_count++;
 		}
 		if ((str[0] == 0xf1) && (str[1] == 0xf2) &&
@@ -117,65 +115,34 @@ int sock_gets(int sockfd, unsigned char *str, size_t count)
 		}
 	}
 
-	printf(")\n");
+	DBG("\n");
 	return total_count;
 }
 
-int deal_with_data(int sock, unsigned char *buf) 
+static int deal_with_data(int listnum, unsigned char *buf) 
 {
 	int amount, i;
-#if 23
-#if 0
-	memset(buf, '\0', sizeof(buf));
-	amount = read(connectlist[listnum], buf, sizeof(buf)); // Service request.
 
-	printf("    Service request(%d): ", amount);
-	for (i = 0; i < amount; i++) {
-		printf("0x%02x ", buf[i] & 0xff);
-	}
-	printf("\n");
-	return amount;
-#endif
-        amount = sock_gets(sock, buf, sizeof(buf));
-	printf("    Service request(%d): ", amount);
-	for (i = 0; i < amount; i++) {
-		printf("0x%02x ", buf[i]);
-	}
-	printf("\n");
-	return amount;
-/*
-	amount = read(connectlist[listnum], buffer, sizeof(buffer));
-	printf("Read amount %d\n", amount);
+        amount = sock_gets(connectlist[listnum], buf, sizeof(buf));
 	if (amount < 0) {
-	} else {
-	    
-	}
- */	
-#else
-        if (sock_gets(connectlist[listnum], buffer, 80) < 0) { // read
                 /* Connection closed, close this end
                    and free up entry in connectlist */
-                printf("\nConnection lost: FD=%d;  Slot=%d\n",
-                        connectlist[listnum],listnum);
+                printf("\nConnection lost: FD=%d; Slot=%d\n", connectlist[listnum], listnum);
                 close(connectlist[listnum]);
                 connectlist[listnum] = 0;
-        } else {  // write
-                /* We got some data, so upper case it
-                   and send it back. */
-                printf("\nReceived: %s; ",buffer);
-                cur_char = buffer;
-                while (cur_char[0] != 0) {
-                        cur_char[0] = toupper(cur_char[0]);
-                        cur_char++;
-                }
-                sock_puts(connectlist[listnum],buffer);
-                sock_puts(connectlist[listnum],"\n");
-                printf("responded: %s\n",buffer);
-        }
+	} else {
+#ifdef DEBUG
+		DBG("Service request(%d): ", amount);
+		for (i = 0; i < amount; i++) {
+			DBG("0x%02x ", buf[i]);
+		}
+		DBG("\n");
 #endif
+	}
+	return amount;
 }
 
-int read_socks(unsigned char *buf) 
+static int read_socks(unsigned char *buf) 
 {
 	int len = -1;
         int listnum;         /* Current item in connectlist for for loops */
@@ -192,13 +159,13 @@ int read_socks(unsigned char *buf)
                 if (FD_ISSET(connectlist[listnum], &socks)) {
 			sock_now = connectlist[listnum];
 			printf("sock_now: %d\n", sock_now);
-                        len = deal_with_data(connectlist[listnum], buf);
+                        len = deal_with_data(listnum, buf);
 		}
         } /* for (all entries in queue) */
 	return len;
 }
 
-void build_select_list(void) 
+static void build_select_list(void) 
 {
         int listnum;         /* Current item in connectlist for for loops */
 
@@ -211,13 +178,15 @@ void build_select_list(void)
         for (listnum = 0; listnum < 5; listnum++) {
                 if (connectlist[listnum] != 0) {
                         FD_SET(connectlist[listnum], &socks);
-                        if (connectlist[listnum] > highsock)
+                        if (connectlist[listnum] > highsock) {
                                 highsock = connectlist[listnum];
+				printf("highsock: %d\n", highsock);
+			}
                 }   
         }   
 }
 
-int checksum(unsigned char *buf)
+static int verify_checksum(unsigned char *buf)
 {
 	int len = buf[2];
 	int i;
@@ -239,19 +208,18 @@ int checksum(unsigned char *buf)
 	}
 }
 
-int bypass2cgi(int conn, unsigned char *data, int len)
+unsigned char checksum(unsigned char *buf, int len)
 {
-	int number;
+	int i;
+	int sum = 0;
 
-	printf("%s: conn: %d\n", __func__, conn);
-	assert(conn > 0);
-
-	number = write(conn, data, len);  // Pass response to CGI.
-	printf("Bypass response to CGI.  Written: %d\n", number);
-	return number;
+        for (i = 0; i < len; i++) {
+		sum += buf[i];
+	}
+	return (sum &= 0xff);
 }
 
-int bypass_cmd(int conn, unsigned char *data, int len)
+static int bypass_cmd(int conn, unsigned char *data, int len)
 {
 	int number;
         int path;
@@ -269,7 +237,7 @@ int bypass_cmd(int conn, unsigned char *data, int len)
 			break;
 	}
 	number = write(conn, data, len);  // Pass response to CGI.
-	printf("Bypass response.  socket-fd: %d, Written: %d\n", conn, number);
+	DBG("Bypass response.  socket-fd: %d, Written: %d\n", conn, number);
 	return number;
 }
 
@@ -277,75 +245,14 @@ int bypass_cmd(int conn, unsigned char *data, int len)
  *  Just bypass data here.
  */
 int cgi2service(int cgi_sock, int service_sock, unsigned char *data, int len, char *serv_path) 
-//int cgi2service(int cgi_sock, char *data, int len, char *serv_path) 
 {
-	//int sock;	
-	//struct sockaddr_un address;
-	//size_t addr_length;
-//	fd_set ready;        
-//	struct timeval to;
-//        int i;
-//        unsigned char buf[256];
-
 	int number;
 
 	assert(cgi_sock > 0);
 	assert(service_sock > 0);
-
-#if 0
-	if ((sock = socket(PF_UNIX, SOCK_STREAM, 0)) < 0) {
-		perror("socket");
-		return 1;
-	}
-
-	address.sun_family = AF_UNIX;    /* Unix domain socket */
-	strcpy(address.sun_path, serv_path);
-
-	/* The total length of the address includes the sun_family element */
-	addr_length = sizeof(address.sun_family) + strlen(address.sun_path);
-
-	if (connect(sock, (struct sockaddr *) &address, addr_length)) {
-		perror("connect");
-		return 1;
-	}
-#endif
-
+        // TODO: Should return NACK here if don't have connect with required service.
 	number = write(service_sock, data, len);  // Pass request command to service.
-	printf("Pass request command to service. Written: %d\n", number);
-
-#if 0  // read ACK from service_incoming()
-
-	number = read(service_sock, buf, sizeof(buf));  // Read ACK from service.
-	printf("Read ACK from service. read: %d\n", number);
-	for (i = 0; i < number; i++) {
-		printf("%02x ", buf[i]);
-	}
-	printf("\n");
-
-#if 23
-	FD_ZERO(&ready);
-	FD_SET(cgi_sock, &ready);
-	to.tv_sec = 3;
-	//printf("Start write ACK. 3 seconds timeout.\n");
-	if (select(cgi_sock + 1, 0, &ready, 0, &to) < 0) {
-		perror("select");
-	}
-	if (FD_ISSET(cgi_sock, &ready)) {
-	        number = write(cgi_sock, buf, number);  // Pass ACK to CGI.
-	} else {
-		printf("Cannot write ACK to CGI.\n");
-	}
-
-#endif
-
-	if (number < 0) {
-		perror("write");
-	}
-	printf("Pass ACK to CGI. Written: %d cgi_sock: %d\n", number, cgi_sock);
-
-////	printf("%s", "Close socket.\n");
-////	close(sock);
-#endif
+	DBG("Pass request command to service. Written: %d\n", number);
 
 	return 0;
 }
@@ -426,23 +333,23 @@ void *cgi_incoming(void *ptr)
 				perror("accept");
 				continue;
 			}
-			printf("---- Dispatcher getting data from CGI. cgi_sock: %d\n", cgi_sock);
+			DBG("---- Dispatcher getting data from CGI.\n");
 
 			memset(buf, '\0', sizeof(buf));
 			amount = read(conn, buf, sizeof(buf)); // CGI request.
 			
-			if (checksum(buf)) {
+			if (verify_checksum(buf)) {
 				printf("Command checksum error.\n");
 				// Send NACK package.
                                 write(conn, nack_checksum_err, sizeof(nack_checksum_err));
 				continue;
 			}
 
-			printf("CGI request(%d): ", amount);
+			DBG("CGI request(%d): ", amount);
 			for (i = 0; i < amount; i++) {
 				printf("0x%02x ", buf[i] & 0xff);
 			}
-			printf("\n");
+			DBG("\n");
 
 			path = buf[3];
 
@@ -467,7 +374,7 @@ void *cgi_incoming(void *ptr)
 					break;
 			}
 
-			printf("---- done\n");
+			DBG("---- done\n");
 			/////////////////////// close(conn);
 		} else {
 			//printf("Do something else ...\n");
@@ -480,31 +387,36 @@ void *cgi_incoming(void *ptr)
 static int reg_service(int conn, unsigned char path)
 {
 	int amount;
-
-	const unsigned char register_ack[] = {0xF1, 0xF2, 0x07, 0x02, 0x90, 0x03, 0x7F};
+        unsigned char route = 0x00;
+	unsigned char register_ack[] = {0xF1, 0xF2, 0x07, 0x02, 0x90, 0x03, 0xFF};
 
 	switch (path) { // command route path
 		case STM2DIS:
-			printf("Service STM register.\n");
+		        DBG("Service STM register.\n");
 			stm_register = 1;
 			stm_sock = conn;
+			route = 0x01;
 			break;
 		case SERVICE22DIS:
-			printf("Service 2 register.\n");
+			DBG("Service 2 register.\n");
 			service2_register = 1;
 			service2_sock = conn;
+			route = 0x02;
 			break;
 		case SERVICE42DIS:
-			printf("Service 4 register.\n");
+			DBG("Service 4 register.\n");
 			service4_register = 1;
 			service4_sock = conn;
+			route = 0x04;
 			break;
 		default:
-			printf("ERROR: Wrong command route path. (%#x)\n", path);
+			printf("ERROR: Wrong command path. (%#x)\n", path);
 			break;
 	}
+	register_ack[3] = route;
+	register_ack[6] = checksum(register_ack, 6);
 	amount = write(conn, register_ack, sizeof(register_ack));
-	printf("Register ack written: %d\n", amount);
+	DBG("Register ack written: %d\n", amount);
 	return amount;
 }
 
@@ -607,7 +519,7 @@ void *service_incoming(void *ptr)
 	}
  */
 	/* Since we start with only one socket, the listening socket,
-	             it is the highest socket so far. */
+	      it is the highest socket so far. */
 	highsock = sock;
 
 	do {
@@ -616,7 +528,8 @@ void *service_incoming(void *ptr)
 		timeout.tv_sec = 1;
 		timeout.tv_usec = 0;
 		
-                readsocks = select(highsock+1, &socks, (fd_set *) 0, (fd_set *) 0, &timeout);
+		// nfds is the highest-numbered file descriptor in any of the three sets, plus 1.
+                readsocks = select(highsock + 1, &socks, (fd_set *) 0, (fd_set *) 0, &timeout);
                 
                 if (readsocks < 0) {
                         perror("select");
@@ -642,13 +555,11 @@ void *service_incoming(void *ptr)
 				printf("Invalid request descriptor.\n");
 			}
 
-			//printf("Service to CGI. (0x%02x) sock_now: %d\n", path, sock_now);
 	      	        amount = bypass_cmd(which_sock, buf, amount);
 			if (amount < 0) {
 				perror("write");
 			}
 	 
-			printf("    ---- done\n");
 			if (command == ACK) {
 				continue;
 			}
