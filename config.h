@@ -75,6 +75,18 @@
 #define GetBirthday     0xA705
 #define GetFeeling      0xA706
 
+#define GetFeeling2     0xA901
+#define GetStatus       0xA902
+#define GetSensorData   0xA903
+
+#define StartAudioStreaming    0xAB01
+#define StopAudioStreaming     0xAB02
+#define RecAudioStreaming      0xAB03
+#define PlayMelody             0xAB04
+#define StartRecName           0xAB05
+#define STMPlayMelody          0xAB06
+#define PlayKeyClick           0xAB07
+
 #define REGISTER        0x9001
 #define ACK             0x9003
 

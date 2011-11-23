@@ -17,11 +17,16 @@ int set_key_sound_status = 0;
 int set_sub_stion_spe_status = -1;
 int set_timer2_status = 0;
 int set_birthday_status = 0;
+int set_status_status = 0;
+int set_sensor_status = 0;
+int set_time_status = 0;
+int set_melody_status = 0;
 
 int language = 0;
 int character = 0;
 int key_sound = 1;
 int feeling = 1;
+int feeling2 = 1;
 
 int SpeechTableID = 0;
 int Motion = 0;
@@ -47,6 +52,12 @@ int SatMinutes = 0;
 
 int birthday_month = 0;
 int birthday_day = 0;
+
+int st_Year = 0;  // SetTime Year
+int st_Month = 0;
+int st_Day = 0;
+int st_Time = 0;
+int st_Minutes = 0;
 
 static int moving_status(void)
 {
@@ -164,6 +175,21 @@ static void getter(int sock, int cmd)
 	    case SetBirthday:
 		    status = set_birthday_status;
 		    break;
+	    case GetFeeling2:
+		    status = feeling2;
+		    break;
+	    case GetStatus:
+		    status = set_status_status;
+		    break;
+	    case GetSensorData:
+		    status = set_sensor_status;
+		    break;
+	    case SetTime:
+		    status = set_time_status;
+		    break;
+	    case PlayMelody:
+		    status = set_melody_status;
+		    break;
 	    default:
 		    printf("Unsupported command. (0x%04x)\n", cmd);
 		    break;
@@ -277,6 +303,42 @@ static int set_key_sound(int sound)
     return rtn;
 }
 
+static int set_status(int StatusTableNO)
+{
+    int rtn = -1;
+
+    switch (StatusTableNO) {
+        case 0 ... 41:
+		rtn = 0;
+		break;
+    }
+    return rtn;
+}
+
+static int set_sensor_data(int StatusTableNO)
+{
+    int rtn = -1;
+
+    switch (StatusTableNO) {
+        case 0 ... 30:
+		rtn = 0;
+		break;
+    }
+    return rtn;
+}
+
+static int play_melody(int MelodyTableNO)
+{
+    int rtn = -1;
+
+    switch (MelodyTableNO) {
+        case 0 ... 3:
+		rtn = 0;
+		break;
+    }
+    return rtn;
+}
+
 static void setter(int sock, unsigned char *buf)
 {
     int cmd = ((buf[4] & 0xff) << 8) | (buf[5] & 0xff);
@@ -308,6 +370,28 @@ static void setter(int sock, unsigned char *buf)
 			    set_key_sound_status = 0;
 		    }
 		    break;
+	    case GetStatus:
+		    if (set_status(buf[6]) != -1) {
+			    set_status_status = 1;
+		    } else {
+			    set_status_status = 0;
+		    }
+		    break;
+	    case GetSensorData:
+		    if (set_sensor_data(buf[6]) != -1) {
+			    set_sensor_status = 1;
+		    } else {
+			    set_sensor_status = 0;
+		    }
+		    break;
+	    case PlayMelody:
+		    if (play_melody(buf[6]) != -1) {
+			    set_melody_status = 1;
+		    } else {
+			    set_melody_status = 0;
+		    }
+		    break;
+
     }
     getter(sock, cmd);
 }
@@ -561,6 +645,50 @@ static void set_birthday(int sock, unsigned char *buf)
     getter(sock, cmd);
 }
 
+static void set_time(int sock, unsigned char *buf)
+{
+    int v;
+    int cmd = ((buf[4] & 0xff) << 8) | (buf[5] & 0xff);
+    set_time_status = 1;
+
+    v = buf[6];
+    if ((v >= 1) && (v <= 12)) {
+        st_Year = v;	
+    } else {
+	set_time_status = 0;
+    }
+
+    v = buf[7];
+    if ((v >= 1) && (v <= 12)) {
+        st_Month = v;	
+    } else {
+	set_time_status = 0;
+    }
+
+    v = buf[8];
+    if ((v >= 1) && (v <= 31)) {
+        st_Day = v;	
+    } else {
+	set_time_status = 0;
+    }
+
+    v = buf[9];
+    if ((v >= 0) && (v <= 23)) {
+        st_Time = v;	
+    } else {
+	set_time_status = 0;
+    }
+
+    v = buf[10];
+    if ((v >= 0) && (v <= 59)) {
+        st_Minutes = v;	
+    } else {
+	set_time_status = 0;
+    }
+
+    getter(sock, cmd);
+}
+
 void handle_cmd(int sock, unsigned char *buf)
 {
     int cmd = ((buf[4] & 0xff) << 8) | (buf[5] & 0xff);
@@ -581,6 +709,7 @@ void handle_cmd(int sock, unsigned char *buf)
 	    case GetErrorCode:
 	    case GetFeeling:
 	    case GetKeySound:
+            case GetFeeling2:
 		    getter(sock, cmd);
 		    break;
 	    case StartSubstitutionSpeech:
@@ -615,7 +744,13 @@ void handle_cmd(int sock, unsigned char *buf)
 	    case GetBirthday:
 		    get_birthday(sock);
 		    break;
+	    case GetStatus: // Is this SetStatus
+	    case GetSensorData:
+	    case PlayMelody:
+		    setter(sock, buf);
+		    break;
 	    case SetTime:
+                    set_time(sock, buf);
 		    break;
 	    default:
 		    printf("[STM] ERROR: Command not support.\n");
