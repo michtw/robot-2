@@ -9,6 +9,12 @@
 
 #include "config.h"
 
+const unsigned long mac = 0x6A6B6C6D6E6FUL;
+
+unsigned char ssid[32];
+unsigned char security_method;
+unsigned char key[32];
+
 char *getSSID(void)
 {
 	return "COVIA";
@@ -16,33 +22,12 @@ char *getSSID(void)
 
 void return_ssid(int sock, char *ssid)
 {
-//	struct sockaddr_un address;
-//	int sock;
-//	size_t addr_length;
 	int len;
         int i;
         short sum = 0x00;
 
 	unsigned char buf[512];
       
-#if 0	
-	if ((sock = socket(PF_UNIX, SOCK_STREAM, 0)) < 0) {
-		perror("socket");
-		return;
-	}
-
-	address.sun_family = AF_UNIX;    /* Unix domain socket */
-	strcpy(address.sun_path, SER4_DIS_SOCKET_FILE);
-
-	/* The total length of the address includes the sun_family element */
-	addr_length = sizeof(address.sun_family) + strlen(address.sun_path);
-
-	if (connect(sock, (struct sockaddr *) &address, addr_length)) {
-		perror("connect");
-		return;
-	}
-#endif
-
 	buf[0] = 0xF1; 
 	buf[1] = 0xF2; 
 	buf[2] = 0xFF;  // command length
@@ -71,9 +56,88 @@ void return_ssid(int sock, char *ssid)
 	memset(buf, '\0', sizeof(buf));
 	len = read(sock, buf, sizeof(buf)); // Read ACK.
 	printf("ACK read: len: %d\n", len);
+}
 
-//	printf("%s", "Close socket.\n");
-//	close(sock);
+static int set_wlan(unsigned char *data)
+{
+	int i;
+	char *p;
+       
+	memset(ssid, '\0', sizeof(ssid));
+	memset(key, '\0', sizeof(key));
+
+        p = strchr((char *)data, '=');
+	p++;
+	for (i = 0; i < 32; i++) {
+		ssid[i] = p[i];
+		if (p[i+1] == ';') {
+			break;
+		}
+	}
+        printf("ssid: %s\n", ssid);
+
+        p = strchr(p, '=');
+        p++;
+	security_method = p[0];
+        printf("security_method: %c\n", security_method);
+
+        p = strchr(p, '=');
+        p++;
+	for (i = 0; i < 32; i++) {
+		key[i] = p[i];
+		if (p[i+2] == '\0') { // end of data. Don't copy checksum data.
+			break;
+		}
+	}
+        printf("key: %s\n", key);
+
+	return 0;
+}
+
+static int get_wlan(unsigned char *data)
+{
+	int len;
+	len = sprintf((char *)data, "SSID=%s;KEY=%s;MAC=%lx", ssid, key, mac);
+	return len;
+}
+
+static void return_data(int sock, unsigned char *data, int len, int cmd)
+{
+        int i;
+        short sum = 0x00;
+
+	unsigned char buf[512];
+      
+	memset(buf, '\0', sizeof(buf));
+
+	buf[0] = 0xF1; 
+	buf[1] = 0xF2; 
+	buf[2] = 0x00;  // command length
+	buf[3] = 0x43; 
+	buf[4] = (cmd >> 8) & 0xff; 
+	buf[5] = cmd & 0xff; 
+					
+	strncpy((char *)&(buf[6]), (char *)data, len);
+
+        len = 6 + len;
+	buf[2] = len + 1; // Last one value is checksum.
+        for (i = 0; i < len; i++) {
+                sum += buf[i];
+	}
+	buf[len] = sum & 0xff;
+
+	printf("Response: ");
+        for (i = 0; i < (len + 1); i++) {
+		printf("0x%02x ", buf[i] & 0xff);
+	}
+	printf("\n");
+
+	len = write(sock, buf, len + 1);
+	printf("Written: %d\n", len);
+
+	memset(buf, '\0', sizeof(buf));
+	len = read(sock, buf, sizeof(buf)); // Read ACK.
+	printf("ACK read: len: %d\n", len);
 }
 
 void handle_cmd(int sock, unsigned char *buf)
@@ -85,99 +149,19 @@ void handle_cmd(int sock, unsigned char *buf)
 			return_ssid(sock, ssid);
 			break;
 		}
+		case GetWlan: {
+			unsigned char data[128];
+			int len;
+			memset(data, '\0', sizeof(data));
+			len = get_wlan(data);
+                        return_data(sock, data, len, GetWlan);
+			break;
+		}
+		case SetWlan:
+			set_wlan(buf);
+			break;
 	}
 }
-
-#if 0
-void *dispatcher_incoming(void *ptr)
-{
-	struct sockaddr_un address;
-	int sock, conn;
-	socklen_t addr_length;
-	int amount;
-	fd_set ready;
-	struct timeval to;
-        char buf[1024];
-        int i;
-        int cmd;
-
-        const unsigned char ack_cmd[] = {0xF1, 0xF2, 0x07, 0x23, 0x90, 0x03, 0xA0};
-
-	if ((sock = socket(PF_UNIX, SOCK_STREAM, 0)) < 0) {
-		perror("socket");
-		exit(1);
-	}
-
-	/* Remove any preexisting socket (or other file) */
-	unlink(DIS_SER4_SOCKET_FILE);
-
-	address.sun_family = AF_UNIX;       /* Unix domain socket */
-	strcpy(address.sun_path, DIS_SER4_SOCKET_FILE);
-
-	/* The total length of the address includes the sun_family
-	   element */
-	addr_length = sizeof(address.sun_family) + strlen(address.sun_path);
-
-	if (bind(sock, (struct sockaddr *) &address, addr_length)) {
-		perror("bind");
-		exit(1);
-	}
- 
-        // Chmod for accessible to CGI.
-	chmod(DIS_SER4_SOCKET_FILE, S_IRUSR | S_IWUSR | S_IXUSR | S_IRGRP | S_IWGRP | S_IXGRP | 
-	                            S_IROTH | S_IWOTH | S_IXOTH);
-
-	if (listen(sock, SOMAXCONN)) {  // 128
-		perror("listen");
-		exit(1);
-	}
-
-	do {
-		FD_ZERO(&ready);
-		FD_SET(sock, &ready);
-		to.tv_sec = 5;
-		if (select(sock + 1, &ready, 0, 0, &to) < 0) {
-			perror("select");
-			continue;
-		}
-
-		if (FD_ISSET(sock, &ready)) {
-			conn = accept(sock, (struct sockaddr *) &address, &addr_length);
-
-			if (conn < 0) {
-				perror("accept");
-				continue;
-			}
-			printf("[Service-4] ---- getting data\n");
-
-			memset(buf, '\0', sizeof(buf));
-			amount = read(conn, buf, sizeof(buf)); // Dispatcher request.
-			printf("[Service-4] Dispatcher request (len: %d): ", amount);
-			for (i = 0; i < amount; i++) {
-				printf("0x%02x ", buf[i] & 0xff);
-			}
-			printf("\n");
-
-			// Must be someone waiting for reading else writing will be died.
-			amount = write(conn, ack_cmd, sizeof(ack_cmd));
-			close(conn);
-			printf("Write amount(ACK): %d\n", amount);
-			
-			printf("[Service-4] ---- done\n");
-
-			usleep(100000);
-                        cmd = ((buf[4] & 0xff) << 8) | (buf[5] & 0xff);
-
-			handle_cmd(cmd);
-			
-		} else {
-			//printf("Do something else ...\n");
-		}
-	} while (1);
-
-	close(sock);
-}
-#endif
 
 void *conn(void *ptr)
 {
@@ -200,7 +184,7 @@ void *conn(void *ptr)
     }
 
     address.sun_family = AF_UNIX;    /* Unix domain socket */
-    strcpy(address.sun_path, DSOCKET_PATH);
+    strcpy(address.sun_path, SER4_DIS_SOCKET_FILE);
 
     /* The total length of the address includes the sun_family element */
     addr_length = sizeof(address.sun_family) + strlen(address.sun_path);
@@ -254,26 +238,15 @@ void *conn(void *ptr)
     return 0;
 }
 
-void *bottom_incoming(void *ptr)
-{
-	while (1) {
-		sleep(1);
-	}
-}
-
 int main(int argc, char *argv[]) 
 {
-        int iret_conn, iret_bottom;
-	pthread_t thread_bottom;    // Accept for Bottom connection.
+        int iret_conn;
 	pthread_t thread_conn;
 
-        iret_bottom = pthread_create(&thread_bottom, NULL, bottom_incoming, (void *)NULL);
         iret_conn = pthread_create(&thread_conn, NULL, conn, (void *)NULL);
 
-        pthread_join(thread_bottom, NULL); 
         pthread_join(thread_conn, NULL); 
 
-        printf("Thread bottom returns: %d\n", iret_bottom);
         printf("Thread conn returns: %d\n", iret_conn);
 
         return 0;

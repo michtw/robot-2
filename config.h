@@ -65,7 +65,7 @@
 #define SetCharacter     0xA603
 #define GetLanguage      0xA604
 #define GetExpression    0xA605
-#define Getcharacter     0xA606
+#define GetCharacter     0xA606
 
 // <Variety Setting>
 #define SetKeySound     0xA701

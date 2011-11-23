@@ -10,91 +10,164 @@
 #include "config.h"
 #include "stm.h"
 
-int moving_status(void)
+int set_timer_status = 0;
+int set_language_status = 0;
+int set_character_status = 0;
+int set_key_sound_status = 0;
+int set_sub_stion_spe_status = -1;
+int set_timer2_status = 0;
+int set_birthday_status = 0;
+
+int language = 0;
+int character = 0;
+int key_sound = 1;
+int feeling = 1;
+
+int SpeechTableID = 0;
+int Motion = 0;
+int Month = 0;
+int Day = 0;
+int Time = 0;
+int Minutes = 0;
+
+int SunTime = 0;
+int SunMinutes = 0;
+int MonTime = 0;
+int MonMinutes = 0;
+int TueTime = 0;
+int TueMinutes = 0;
+int WedTime = 0;
+int WedMinutes = 0;
+int ThuTime = 0;
+int ThuMinutes = 0;
+int FriTime = 0;
+int FriMinutes = 0;
+int SatTime = 0;
+int SatMinutes = 0;
+
+int birthday_month = 0;
+int birthday_day = 0;
+
+static int moving_status(void)
 {
     return 3;
 }
 
-void auto_drive(char parm) 
+static int job_status(void)
+{
+    return 1;
+}
+
+static int error_code(void)
+{
+    return 0xFF;
+}
+
+static void auto_drive(char parm) 
 {
     switch (parm) {
             case AD_ACTION_STOP:
-		    printf("AD_ACTION_STOP\n");
+		    printf("ACTION_STOP\n");
 		    break;
             case AD_AUTO_ACTION:
-		    printf("AD_AUTO_ACTION\n");
+		    printf("AUTO_ACTION\n");
 		    break;
             case AD_SPOT1_ACTION:
-		    printf("AD_SPOT1_ACTION\n");
+		    printf("SPOT1_ACTION\n");
 		    break;
             case AD_SPOT2_ACTION:
-		    printf("AD_SPOT2_ACTION\n");
+		    printf("SPOT2_ACTION\n");
 		    break;
             case AD_WALL_ACTION:
-		    printf("AD_WALL_ACTION\n");
+		    printf("WALL_ACTION\n");
 		    break;
             case AD_PCI_ACTION:
-		    printf("AD_PCI_ACTION\n");
+		    printf("PCI_ACTION\n");
 		    break;
     }
 }
 
-void manual_drive(char parm)
+static void manual_drive(char parm)
 {
     switch (parm) {
             case MD_ACTION_STOP:
-		    printf("MD_ACTION_STOP\n");
+		    printf("ACTION_STOP\n");
 		    break;
             case MD_FORWARD:
-		    printf("MD_FORWARD\n");
+		    printf("FORWARD\n");
 		    break;
             case MD_BACK:
-		    printf("MD_BACK\n");
+		    printf("BACK\n");
 		    break;
             case MD_RIGHT_TURN:
-		    printf("MD_RIGHT_TURN\n");
+		    printf("RIGHT_TURN\n");
 		    break;
             case MD_LEFT_TURN:
-		    printf("MD_LEFT_TURN\n");
+		    printf("LEFT_TURN\n");
 		    break;
     }
 }
 
-void get_moving_status(void)
+static void getter(int sock, int cmd)
 {
-    struct sockaddr_un address;
-    int sock;
-    size_t addr_length;
     int len;
-    int i, status, idx = 0;
+    int i, status = 0, idx = 0;
     short sum = 0x00;
  
-    char buf[128];
-
-    if ((sock = socket(PF_UNIX, SOCK_STREAM, 0)) < 0) {
-	    perror("socket");
-	    return;
-    }
-
-    address.sun_family = AF_UNIX;    /* Unix domain socket */
-    strcpy(address.sun_path, DSOCKET_PATH);
-
-    /* The total length of the address includes the sun_family element */
-    addr_length = sizeof(address.sun_family) + strlen(address.sun_path);
-
-    if (connect(sock, (struct sockaddr *) &address, addr_length)) {
-	    perror("connect");
-	    return;
-    }
+    unsigned char buf[128];
 
     buf[idx++] = 0xF1; 
     buf[idx++] = 0xF2; 
     buf[idx++] = 0x08;  // command length
     buf[idx++] = 0x13; 
-    buf[idx++] = 0xA3; 
-    buf[idx++] = 0x04; 
+    buf[idx++] = (cmd >> 8) & 0xff; 
+    buf[idx++] = cmd & 0xff; 
 
-    status = moving_status();
+    switch (cmd) {
+	    case GetMovingStatus:
+		    status = moving_status();
+		    break;
+	    case GetJobStatus:
+                    status = job_status();
+		    break;
+	    case GetErrorCode:
+		    status = error_code();
+		    break;
+	    case TimerOn:
+	    case TimerOff:
+		    status = set_timer_status;
+		    break;
+	    case SetLanguage:
+		    status = set_language_status;
+		    break;
+	    case SetCharacter:
+		    status = set_character_status;
+		    break;
+	    case GetLanguage:
+		    status = language;
+		    break;
+	    case GetCharacter:
+		    status = character;
+		    break;
+	    case GetKeySound:
+		    status = key_sound;
+		    break;
+	    case GetFeeling:
+		    status = feeling;
+		    break;
+	    case SetTimer:
+		    status = set_timer2_status;
+		    break;
+	    case SubstitutionSpeech:
+		    status = set_sub_stion_spe_status;
+		    break;
+	    case SetBirthday:
+		    status = set_birthday_status;
+		    break;
+	    default:
+		    printf("Unsupported command. (0x%04x)\n", cmd);
+		    break;
+    }
     
     buf[idx++] = status;
 
@@ -102,22 +175,19 @@ void get_moving_status(void)
 	    sum += buf[i];
     }
     buf[idx++] = sum & 0xff;
-
-    printf("Moving status response: ");
+#ifdef DEBUG
+    printf("Response command: ");
     for (i = 0; i < idx; i++) {
 	    printf("0x%02x ", buf[i] & 0xff);
     }
     printf("\n");
-
+#endif
     len = write(sock, buf, idx);
-    printf("Moving status. Written: %d. \n", len);
+    DBG("Written: %d. \n", len);
 
     memset(buf, '\0', sizeof(buf));
     len = read(sock, buf, sizeof(buf)); // Read ACK.
-    printf("ACK read: len: %d\n", len);
-
-    printf("%s", "Close socket.\n");
-    close(sock);
+    DBG("ACK read: len: %d\n", len);
 }
 
 static void startSubStitutionSpeech(int sock, unsigned char table)
@@ -125,15 +195,11 @@ static void startSubStitutionSpeech(int sock, unsigned char table)
     int i;
     unsigned char  buf[256];
     int len;
-    //unsigned char ack_cmd[] = {0xF1, 0xF2, 0x07, 0x13, 0x90, 0x03, 0x90};
     unsigned char cmd[] = {0xF1, 0xF2, 0x08, 0x12, 0xA4, 0x02, table, 0xFF};
 
     cmd[7] = (cmd[0] + cmd[1] + cmd[2] + cmd[3] + cmd[4] + cmd[5] + cmd[6]) & 0xff;  // checksum
 
     printf("Speed table: %d\n", table);
-    //write(sock, ack_cmd, sizeof(ack_cmd)); // Ack to CGI.
-
-    //usleep(100000);
 
     len = write(sock, cmd, sizeof(cmd));  // Send command to STM
     printf("startSubStitutionSpeech command write: %d\n", len);
@@ -144,6 +210,355 @@ static void startSubStitutionSpeech(int sock, unsigned char table)
 	    printf("0x%02x ", buf[i]);
     }
     printf("\n");
+}
+
+static void set_timer(int state)
+{
+    if (state) { // timer on
+	    printf("Timer on.\n");
+	    set_timer_status = 1;
+    } else {
+	    printf("Timer off.\n");
+	    set_timer_status = 1;
+    }	    
+}
+
+static int set_language(int lang)
+{
+    int rtn = -1;
+    switch (lang) {
+	    case 0:
+	    case 1:
+	    case 2:
+	    case 3:
+		    printf("Set language: [%d] OK.", lang);
+		    language = lang;
+		    rtn = 0;
+		    break;
+            default:
+		    printf("Unsupported language\n");
+		    break;
+    }
+    return rtn;
+}
+
+static int set_character(int chater)
+{
+    int rtn = -1;
+    switch (chater) {
+	    case 0:
+	    case 1:
+	    case 2:
+		    printf("Set character: [%d] OK.", chater);
+		    character = chater;
+		    rtn = 0;
+		    break;
+            default:
+		    printf("Unsupported character\n");
+		    break;
+    }
+    return rtn;
+}
+
+static int set_key_sound(int sound)
+{
+    int rtn = -1;
+    switch (sound) {
+	    case 0:
+	    case 1:
+		    printf("Set key sound: [%d] OK.", sound);
+		    key_sound = sound;
+		    rtn = 0;
+		    break;
+            default:
+		    printf("Unsupported key sound\n");
+		    break;
+    }
+    return rtn;
+}
+
+static void setter(int sock, unsigned char *buf)
+{
+    int cmd = ((buf[4] & 0xff) << 8) | (buf[5] & 0xff);
+    switch (cmd) {
+	    case TimerOn:
+		    set_timer(1);
+		    break;
+	    case TimerOff:
+		    set_timer(0);
+		    break;
+	    case SetLanguage:
+		    if (set_language(buf[6]) != -1) {
+			    set_language_status = 1;
+		    } else {
+			    set_language_status = 0;
+		    }
+		    break;
+	    case SetCharacter:
+		    if (set_character(buf[6]) != -1) {
+			    set_character_status = 1;
+		    } else {
+			    set_character_status = 0;
+		    }
+		    break;
+	    case SetKeySound:
+		    if (set_key_sound(buf[6]) != -1) {
+			    set_key_sound_status = 1;
+		    } else {
+			    set_key_sound_status = 0;
+		    }
+		    break;
+    }
+    getter(sock, cmd);
+}
+
+static void substitutionSpeech(int sock, unsigned char *buf)
+{
+    int cmd = ((buf[4] & 0xff) << 8) | (buf[5] & 0xff);
+
+    set_sub_stion_spe_status = 1;
+
+    if ((buf[6] >= 0) && (buf[6] <= 4)) {
+        SpeechTableID = buf[6];
+    } else {
+	set_sub_stion_spe_status = 0;
+    }
+    if ((buf[7] >= 0) && (buf[7] <= 8)) {
+        Motion = buf[7];
+    } else {
+	set_sub_stion_spe_status = 0;
+    }
+    if ((buf[8] >= 1) && (buf[8] <= 12)) {
+        Month = buf[8];
+    } else {
+	set_sub_stion_spe_status = 0;
+    }
+    if ((buf[9] >= 1) && (buf[9] <= 31)) {
+        Day = buf[9];
+    } else {
+	set_sub_stion_spe_status = 0;
+    }
+    if ((buf[10] >= 0) && (buf[10] <= 23)) {
+	Time = buf[10];
+    } else {
+	set_sub_stion_spe_status = 0;
+    }
+    if ((buf[11] >= 0) && (buf[11] <= 59)) {
+	Minutes = buf[11];
+    } else {
+	set_sub_stion_spe_status = 0;
+    }
+    getter(sock, cmd);
+}
+
+static void set_timer2(int sock, unsigned char *buf)
+{
+    int cmd = ((buf[4] & 0xff) << 8) | (buf[5] & 0xff);
+    unsigned char v;	
+
+    set_timer2_status = 1;
+
+    v = buf[6];
+    if ((v >= 0) && (v <= 23)) {
+	SunTime = v;
+    } else {
+	set_timer2_status = 0;
+    }
+    v = buf[7];
+    if ((v >= 0) && (v <= 59)) {
+	SunMinutes = v;
+    } else {
+	set_timer2_status = 0;
+    }
+
+    v = buf[8];
+    if ((v >= 0) && (v <= 23)) {
+        MonTime = v;
+    } else {
+	set_timer2_status = 0;
+    }
+    v = buf[9];
+    if ((v >= 0) && (v <= 59)) {
+	MonMinutes = v;
+    } else {
+	set_timer2_status = 0;
+    }
+
+    v = buf[10];
+    if ((v >= 0) && (v <= 23)) {
+	TueTime = v;
+    } else {
+	set_timer2_status = 0;
+    }
+    v = buf[11];
+    if ((v >= 0) && (v <= 59)) {
+	TueMinutes = v;
+    } else {
+	set_timer2_status = 0;
+    }
+
+    v = buf[12];
+    if ((v >= 0) && (v <= 23)) {
+	WedTime = v;
+    } else {
+	set_timer2_status = 0;
+    }
+    v = buf[13];
+    if ((v >= 0) && (v <= 59)) {
+	WedMinutes = v;
+    } else {
+	set_timer2_status = 0;
+    }
+
+    v = buf[14];	
+    if ((v >= 0) && (v <= 23)) {
+	ThuTime = v;
+    } else {
+	set_timer2_status = 0;
+    }
+    v = buf[15];	
+    if ((v >= 0) && (v <= 59)) {
+	ThuMinutes = v;
+    } else {
+	set_timer2_status = 0;
+    }
+
+    v = buf[16];
+    if ((v >= 0) && (v <= 23)) {
+	FriTime = v;
+    } else {
+	set_timer2_status = 0;
+    }
+    v = buf[17];
+    if ((v >= 0) && (v <= 59)) {
+	FriMinutes = v;
+    } else {
+	set_timer2_status = 0;
+    }
+
+    v = buf[18];
+    if ((v >= 0) && (v <= 23)) {
+	SatTime = v;
+    } else {
+	set_timer2_status = 0;
+    }
+    v = buf[19];
+    if ((v >= 0) && (v <= 59)) {
+	SatMinutes = v;
+    } else {
+	set_timer2_status = 0;
+    }
+
+    getter(sock, cmd);
+}
+
+static void get_birthday(int sock)
+{
+    int len;
+    int i, idx = 0;
+    short sum = 0x00;
+ 
+    unsigned char buf[128];
+
+    buf[idx++] = 0xF1; 
+    buf[idx++] = 0xF2; 
+    buf[idx++] = 9;  // command length
+    buf[idx++] = 0x13; 
+    buf[idx++] = 0xA7; 
+    buf[idx++] = 0x05; 
+
+    buf[idx++] = birthday_month;
+    buf[idx++] = birthday_day;
+
+    for (i = 0; i < idx; i++) {
+	    sum += buf[i];
+    }
+    buf[idx++] = sum & 0xff;
+#ifdef DEBUG
+    printf("Response command: ");
+    for (i = 0; i < idx; i++) {
+	    printf("0x%02x ", buf[i] & 0xff);
+    }
+    printf("\n");
+#endif
+    len = write(sock, buf, idx);
+    DBG("Written: %d. \n", len);
+
+    memset(buf, '\0', sizeof(buf));
+    len = read(sock, buf, sizeof(buf)); // Read ACK.
+    DBG("ACK read: len: %d\n", len);
+}
+
+static void get_timer(int sock)
+{
+    int len;
+    int i, idx = 0;
+    short sum = 0x00;
+ 
+    unsigned char buf[128];
+
+    buf[idx++] = 0xF1; 
+    buf[idx++] = 0xF2; 
+    buf[idx++] = 21;  // command length
+    buf[idx++] = 0x13; 
+    buf[idx++] = 0xA5; 
+    buf[idx++] = 0x04; 
+
+    buf[idx++] = SunTime;
+    buf[idx++] = SunMinutes;
+    buf[idx++] = MonTime;
+    buf[idx++] = MonMinutes;
+    buf[idx++] = TueTime;
+    buf[idx++] = TueMinutes;
+    buf[idx++] = WedTime;
+    buf[idx++] = WedMinutes;
+    buf[idx++] = ThuTime;
+    buf[idx++] = ThuMinutes;
+    buf[idx++] = FriTime;
+    buf[idx++] = FriMinutes;
+    buf[idx++] = SatTime;
+    buf[idx++] = SatMinutes;
+
+    for (i = 0; i < idx; i++) {
+	    sum += buf[i];
+    }
+    buf[idx++] = sum & 0xff;
+#ifdef DEBUG
+    printf("Response command: ");
+    for (i = 0; i < idx; i++) {
+	    printf("0x%02x ", buf[i] & 0xff);
+    }
+    printf("\n");
+#endif
+    len = write(sock, buf, idx);
+    DBG("Written: %d. \n", len);
+
+    memset(buf, '\0', sizeof(buf));
+    len = read(sock, buf, sizeof(buf)); // Read ACK.
+    DBG("ACK read: len: %d\n", len);
+}
+
+static void set_birthday(int sock, unsigned char *buf)
+{
+    int v;
+    int cmd = ((buf[4] & 0xff) << 8) | (buf[5] & 0xff);
+    set_birthday_status = 1;
+
+    v = buf[6];
+    if ((v >= 1) && (v <= 12)) {
+        birthday_month = v;	
+    } else {
+	set_birthday_status = 0;
+    }
+
+    v = buf[7];
+    if ((v >= 1) && (v <= 31)) {
+        birthday_day = v;	
+    } else {
+	set_birthday_status = 0;
+    }
+
+    getter(sock, cmd);
 }
 
 void handle_cmd(int sock, unsigned char *buf)
@@ -159,113 +574,54 @@ void handle_cmd(int sock, unsigned char *buf)
 		    manual_drive(parm);
 		    break;
 	    case GoHomeAndDock:
-		    printf("GoHomeAndDock NOT support now.\n");
+		    printf("GoHomeAndDock NOT supported.\n");
 		    break;
 	    case GetMovingStatus:
-		    get_moving_status();
-		    break;
 	    case GetJobStatus:
-		    printf("GetJobStatus NOT support now.\n");
-		    break;
 	    case GetErrorCode:
-		    printf("GetErrorCode NOT support now.\n");
+	    case GetFeeling:
+	    case GetKeySound:
+		    getter(sock, cmd);
 		    break;
 	    case StartSubstitutionSpeech:
 		    startSubStitutionSpeech(sock, buf[6]);
                     break;
+	    case SubstitutionSpeech:
+		    substitutionSpeech(sock, buf);
+		    break;
+	    case SetTimer:
+		    set_timer2(sock, buf);
+		    break;
+	    case GetTimer:
+		    get_timer(sock);
+		    break;
+	    case TimerOn:
+	    case TimerOff:
+		    setter(sock, buf);
+		    break;
+	    case SetLanguage:
+	    case SetCharacter:
+		    setter(sock, buf);
+		    break;
+	    case GetLanguage:
+	    case GetCharacter:
+		    getter(sock, cmd);
+		    break;
+	    case SetKeySound:
+		    setter(sock, buf);
+		    break;
+	    case SetBirthday:
+		    set_birthday(sock, buf);
+	    case GetBirthday:
+		    get_birthday(sock);
+		    break;
+	    case SetTime:
+		    break;
 	    default:
 		    printf("[STM] ERROR: Command not support.\n");
 		    break;
     }
 }
-
-#if 0
-void *dispatcher_incoming(void *ptr)
-{
-    struct sockaddr_un address;
-    int sock, conn;
-    socklen_t addr_length;
-    int amount;
-    fd_set ready;
-    struct timeval to;
-    char buf[1024];
-    int i;
-    int cmd;
-
-    const char ack_cmd[] = {0xF1, 0xF2, 0x07, 0x13, 0x90, 0x03, 0x90};
-
-    if ((sock = socket(PF_UNIX, SOCK_STREAM, 0)) < 0) {
-	    perror("socket");
-	    exit(1);
-    }
-
-    /* Remove any preexisting socket (or other file) */
-    unlink(DIS_STM_SOCKET_FILE);
-
-    address.sun_family = AF_UNIX;       /* Unix domain socket */
-    strcpy(address.sun_path, DIS_STM_SOCKET_FILE);
-
-    /* The total length of the address includes the sun_family
-       element */
-    addr_length = sizeof(address.sun_family) + strlen(address.sun_path);
-
-    if (bind(sock, (struct sockaddr *) &address, addr_length)) {
-	    perror("bind");
-	    exit(1);
-    }
-
-    chmod(DIS_STM_SOCKET_FILE, S_IRUSR | S_IWUSR | S_IXUSR | S_IRGRP | S_IWGRP | S_IXGRP | 
-	                        S_IROTH | S_IWOTH | S_IXOTH);
-
-    if (listen(sock, 5)) {
-	    perror("listen");
-	    exit(1);
-    }
-
-    do {
-	    FD_ZERO(&ready);
-	    FD_SET(sock, &ready);
-	    to.tv_sec = 5;
-	    if (select(sock + 1, &ready, 0, 0, &to) < 0) {
-		    perror("select");
-		    continue;
-	    }
-
-	    if (FD_ISSET(sock, &ready)) {
-		    conn = accept(sock, (struct sockaddr *) &address, &addr_length);
-
-		    if (conn < 0) {
-			    perror("accept");
-			    continue;
-		    }
-		    printf("[STM] ---- getting data\n");
-
-		    memset(buf, '\0', sizeof(buf));
-		    amount = read(conn, buf, sizeof(buf)); // CGI request.
-		    printf("[STM] Dispatcher request(%d): ", amount);
-		    for (i = 0; i < amount; i++) {
-			    printf("0x%02x ", buf[i] & 0xff);
-		    }
-		    printf("\n");
-
-		    amount = write(conn, ack_cmd, sizeof(ack_cmd));
-		    close(conn);
-		    printf("Write amount: %d\n", amount);
-
-		    printf("[STM] ---- done\n");
-
-		    usleep(100000);
-		    cmd = ((buf[4] & 0xff) << 8) | (buf[5] & 0xff);
-
-		    handle_cmd(cmd, buf[6]);
-	    } else {
-		    //printf("Do something else ...\n");
-	    }
-    } while (1);
-
-    close(sock);
-}
-#endif
 
 void *conn(void *ptr)
 {
@@ -305,8 +661,6 @@ void *conn(void *ptr)
 	    exit(1);
     }
 
-    //printf("Register done.\n");
-
     do {
 	FD_ZERO(&ready_r);
 	FD_SET(sock, &ready_r);
@@ -345,31 +699,15 @@ void *conn(void *ptr)
     return 0;
 }
 
-void *bottom_incoming(void *ptr)
-{
-	while (1) {
-		sleep(1);
-	}
-}
-
 int main(int argc, char *argv[]) 
 {
-//    int iret_dispatcher;
-    int iret_bottom, iret_conn;
-//    pthread_t thread_dispatcher;  // Accept for Dispatcher connection.
-    pthread_t thread_bottom;      // Accept for Bottom connection.
+    int iret_conn;
     pthread_t thread_conn;
 
-//    iret_dispatcher = pthread_create(&thread_dispatcher, NULL, dispatcher_incoming, (void *)NULL);
-    iret_bottom = pthread_create(&thread_bottom, NULL, bottom_incoming, (void *)NULL);
     iret_conn = pthread_create(&thread_conn, NULL, conn, (void *)NULL);
 
-//    pthread_join(thread_dispatcher, NULL);
-    pthread_join(thread_bottom, NULL); 
     pthread_join(thread_conn, NULL); 
 
-//    printf("Thread dispatcher returns: %d\n", iret_dispatcher);
-    printf("Thread bottom returns: %d\n", iret_bottom);
     printf("Thread conn returns: %d\n", iret_conn);
     return 0;
 }
